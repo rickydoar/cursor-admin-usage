@@ -15,6 +15,7 @@ export const metadata: Metadata = {
 
 type UsageStats = {
   activeUsers: number;
+  licenseCount: number; // contracted seats (must be <= activeUsers)
   totalPool: number; // total credits available in the global pool
   remainingPool: number; // remaining credits in the global pool
   renewalDate: string; // ISO date string when the pool renews
@@ -27,6 +28,8 @@ async function getUsageStats(): Promise<UsageStats> {
   // return res.json()
   return {
     activeUsers: 1562,
+    // Ensure license count is lower than active users for the mock
+    licenseCount: Math.max(0, 1562 - 120),
     totalPool: 1_000_000,
     remainingPool: 732_450,
     renewalDate: (() => {
@@ -44,7 +47,7 @@ function formatNumber(value: number): string {
 }
 
 export default async function AdminUsagePage() {
-  const { activeUsers, totalPool, remainingPool, renewalDate, averageDailySpend } = await getUsageStats();
+  const { activeUsers, licenseCount, totalPool, remainingPool, renewalDate, averageDailySpend } = await getUsageStats();
   const remainingPercent = Math.max(0, Math.min(100, Math.round((remainingPool / totalPool) * 100)));
 
   // Derived dates
@@ -65,6 +68,18 @@ export default async function AdminUsagePage() {
   const formatDate = (d: Date) =>
     new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" }).format(d);
 
+  // True-up cadence: every 3 months starting from contract start.
+  // Work backwards from renewal (assume 12-month term) to derive the contract start.
+  const contractStart = new Date(renewsOn);
+  contractStart.setFullYear(contractStart.getFullYear() - 1);
+  const trueUpMilestones: Date[] = [1, 2, 3, 4].map((q) => {
+    const d = new Date(contractStart);
+    d.setMonth(d.getMonth() + q * 3);
+    return d;
+  });
+  const nextTrueUpDate = trueUpMilestones.find((d) => d.getTime() >= now.getTime()) ?? renewsOn;
+  const projectedSeatsAdded = Math.max(0, activeUsers - licenseCount);
+
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8">
       <div className="mb-6 flex items-start justify-between gap-3">
@@ -82,6 +97,20 @@ export default async function AdminUsagePage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{formatNumber(activeUsers)}</div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div>
+                <div className="text-xs text-muted-foreground">License count</div>
+                <div className="text-sm font-medium">{formatNumber(licenseCount)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Next true up date</div>
+                <div className="text-sm font-medium">{formatDate(nextTrueUpDate)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Projected seats added</div>
+                <div className="text-sm font-medium">{formatNumber(projectedSeatsAdded)}</div>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
